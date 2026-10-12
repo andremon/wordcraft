@@ -204,6 +204,9 @@ pub struct WordApp {
     pub recipient_list_pending: bool,
     /// macOS: the window has no title bar; leave room for the traffic lights.
     pub integrated_titlebar: bool,
+    /// Whether the app names the window after the document. A host that embeds the editor in its
+    /// own window turns this off and titles the window itself.
+    pub sets_window_title: bool,
     control_rx: Option<std::sync::mpsc::Receiver<ControlRequest>>,
     shot_token: u64,
     queued_shots: Vec<(u64, f64, u32)>,
@@ -282,6 +285,7 @@ impl WordApp {
             status_msg: None,
             previews: previews::Previews::default(),
             integrated_titlebar: false,
+            sets_window_title: true,
             control_rx: None,
             shot_token: 0,
             queued_shots: Vec::new(),
@@ -850,6 +854,14 @@ impl WordApp {
         }
     }
 
+    /// Installs the interface fonts and theme again on the next frame. A host that shares its
+    /// window with the editor and puts its own look back while the editor is hidden calls this
+    /// when the editor is shown again.
+    pub fn restyle(&mut self) {
+        self.styled = false;
+        self.applied_theme = None;
+    }
+
     /// Per-frame logic before layout: control requests, screenshots, shortcuts, file drops.
     pub fn logic(&mut self, ctx: &egui::Context) {
         let lang = i18n::Lang::from_pref(&self.ui.language);
@@ -1031,8 +1043,8 @@ impl WordApp {
         if let Some(url) = self.canvas.open_url.take() {
             ctx.open_url(egui::OpenUrl::new_tab(url));
         }
-        let title = format!("{}{} - WordCraft", self.title_stem(), if self.session.dirty { " •" } else { "" });
-        if title != self.sent_title {
+        let title = format!("{}{} - {}", self.title_stem(), if self.session.dirty { " •" } else { "" }, i18n::product());
+        if self.sets_window_title && title != self.sent_title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.sent_title = title;
         }

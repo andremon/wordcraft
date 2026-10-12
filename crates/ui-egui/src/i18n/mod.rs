@@ -48,7 +48,7 @@ pub struct LangInfo {
 }
 
 /// The registry. English first: it is the fallback and the source language.
-pub static LANGUAGES: [LangInfo; 12] = [
+pub static LANGUAGES: [LangInfo; 13] = [
     LangInfo { code: "en", name: "English", source: "", prefer_hans: false, catalog: OnceLock::new() },
     // Simplified Chinese; `zh`, `zh-CN`, `zh-SG` and `zh-Hans-*` resolve here (see `candidates`).
     LangInfo { code: "zh-hans", name: "简体中文", source: include_str!("zh-hans.tsv"), prefer_hans: true, catalog: OnceLock::new() },
@@ -71,6 +71,8 @@ pub static LANGUAGES: [LangInfo; 12] = [
     // Russian; `ru`, `ru-RU`, `ru_RU.UTF-8` and other regions resolve here.
     LangInfo { code: "ru", name: "Русский", source: include_str!("ru.tsv"), prefer_hans: false, catalog: OnceLock::new() },
     LangInfo { code: "tr", name: "Türkçe", source: include_str!("tr.tsv"), prefer_hans: false, catalog: OnceLock::new() },
+    // Norwegian Bokmål; `nb-NO`, and plain `no` and Nynorsk `nn` (closest catalog) resolve here.
+    LangInfo { code: "nb", name: "Norsk (bokmål)", source: include_str!("nb.tsv"), prefer_hans: false, catalog: OnceLock::new() },
 ];
 
 impl LangInfo {
@@ -170,6 +172,10 @@ fn candidates(tag: &str) -> Vec<String> {
     for n in (1..=parts.len()).rev() {
         out.push(parts.get(..n).unwrap_or_default().join("-"));
     }
+    if matches!(primary, "no" | "nn") {
+        // Norwegian: the Bokmål catalog serves `no` (macrolanguage) and Nynorsk alike.
+        out.push("nb".to_string());
+    }
     if primary == "zh" && !parts.iter().any(|p| matches!(*p, "hans" | "hant")) {
         // Chinese by region when no script is given.
         let script = if parts.iter().any(|p| matches!(*p, "tw" | "hk" | "mo")) { "zh-hant" } else { "zh-hans" };
@@ -224,6 +230,48 @@ pub fn set_current(lang: Lang) {
     CURRENT.set(lang);
 }
 
+/// The product name a host program shows instead of "WordCraft" ([`set_product_name`]).
+static PRODUCT: OnceLock<&'static str> = OnceLock::new();
+
+/// Interface strings with the product name put in, made once each.
+static BRANDED: std::sync::Mutex<Vec<(String, &'static str)>> = std::sync::Mutex::new(Vec::new());
+
+/// A program that embeds the editor under its own name: every interface string (and the window
+/// title) says `name` where it would say "WordCraft". Set once, before the first frame; later calls
+/// are ignored.
+pub fn set_product_name(name: &'static str) {
+    let _ = PRODUCT.set(name);
+}
+
+/// The product name the interface shows ("WordCraft" unless a host set another).
+pub fn product() -> &'static str {
+    PRODUCT.get().copied().unwrap_or("WordCraft")
+}
+
+/// `s` with the host's product name in place of "WordCraft" (unchanged without one).
+fn branded(s: &str) -> &str {
+    let Some(name) = PRODUCT.get() else { return s };
+    if !s.contains("WordCraft") {
+        return s;
+    }
+    let Ok(mut cache) = BRANDED.lock() else { return s };
+    if let Some((_, b)) = cache.iter().find(|(k, _)| k == s) {
+        return b;
+    }
+    // A bounded set: only the few interface strings that name the product.
+    if cache.len() >= 256 {
+        return s;
+    }
+    let b: &'static str = Box::leak(rename_product(s, name).into_boxed_str());
+    cache.push((s.to_owned(), b));
+    b
+}
+
+/// `s` with `name` wherever it says "WordCraft".
+fn rename_product(s: &str, name: &str) -> String {
+    s.replace("WordCraft", name)
+}
+
 /// The language the UI is drawn in.
 pub fn current() -> Lang {
     CURRENT.get()
@@ -251,7 +299,7 @@ pub fn trc<'a>(lang: Lang, context: &str, s: &'a str) -> &'a str {
     if pseudo::on() {
         return pseudo::mark(s);
     }
-    lang.catalog().in_context(context, s).unwrap_or(s)
+    branded(lang.catalog().in_context(context, s).unwrap_or(s))
 }
 
 /// Lowercase translated interface labels and UI search queries in the current language.
@@ -279,7 +327,7 @@ pub fn tr(lang: Lang, s: &str) -> &str {
     if pseudo::on() {
         return pseudo::mark(s);
     }
-    lang.catalog().plain(s).unwrap_or(s)
+    branded(lang.catalog().plain(s).unwrap_or(s))
 }
 
 /// A style's name as the interface shows it: built-in styles (`Normal`, `Heading 2`, `TOC 3`) in

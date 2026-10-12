@@ -646,3 +646,18 @@ fn bundled_interface_fonts_cover_turkish_without_system_fallbacks() {
     }
     assert!(!lang("tr").uses_cjk());
 }
+
+#[test]
+fn norwegian_resolves_from_bokmal_nynorsk_and_plain_no() {
+    for tag in ["nb", "nb-NO", "nb_NO.UTF-8", "no", "no-NO", "nn", "nn_NO"] {
+        assert_eq!(lang_from_tag(tag).map(Lang::code), Some("nb"), "{tag}");
+    }
+    let nb = Lang::from_code("nb").unwrap();
+    assert_ne!(tr(nb, "Paste Special"), "Paste Special");
+}
+
+#[test]
+fn a_host_can_rename_the_product() {
+    assert_eq!(super::rename_product("About WordCraft", "Continuum"), "About Continuum");
+    assert_eq!(super::rename_product("Save", "Continuum"), "Save");
+}
